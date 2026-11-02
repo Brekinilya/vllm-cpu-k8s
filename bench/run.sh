@@ -8,8 +8,13 @@ namespace="${NAMESPACE:-llm-inference}"
 results="bench/results"
 
 kubectl -n "$namespace" rollout status deploy/vllm --timeout=30m >/dev/null
+manifest="$(kubectl kustomize bench)"
+if [[ -n "${BENCH_PLAN:-}" ]]; then
+  manifest="$(sed "s|^  BENCH_PLAN: .*|  BENCH_PLAN: ${BENCH_PLAN}|" <<<"$manifest")"
+fi
+
 kubectl -n "$namespace" delete job vllm-bench --ignore-not-found --wait=true >/dev/null
-kubectl apply -k bench >/dev/null
+kubectl apply -f - <<<"$manifest" >/dev/null
 echo "bench job started: $label"
 
 until status="$(kubectl -n "$namespace" get job vllm-bench -o jsonpath='{.status.succeeded}/{.status.failed}')" \

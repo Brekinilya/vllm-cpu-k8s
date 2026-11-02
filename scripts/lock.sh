@@ -7,6 +7,7 @@ exclude_newer="${EXCLUDE_NEWER:-2026-10-20T00:00:00Z}"
 torch_index="https://download.pytorch.org/whl/cpu"
 
 uv pip compile docker/vllm/requirements.in \
+  --upgrade \
   --python-version 3.12 \
   --python-platform x86_64-manylinux_2_39 \
   --torch-backend cpu \
@@ -21,6 +22,7 @@ awk -v index_url="$torch_index" '{ print } /^--index-url / { print "--extra-inde
 mv docker/vllm/requirements.txt.tmp docker/vllm/requirements.txt
 
 uv pip compile docker/downloader/requirements.in \
+  --upgrade \
   --python-version 3.12 \
   --python-platform x86_64-unknown-linux-musl \
   --generate-hashes \

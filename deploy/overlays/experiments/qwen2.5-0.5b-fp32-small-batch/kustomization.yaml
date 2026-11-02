@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: llm-inference
+
+resources:
+  - ../../minikube
+
+components:
+  - ../../../components/qwen2.5-0.5b
+
+configMapGenerator:
+  - name: vllm-serve
+    behavior: replace
+    files:
+      - serve.yaml
