@@ -12,13 +12,17 @@ RUN apt-get update \
 
 FROM base AS builder
 RUN apt-get update \
- && apt-get install -y --no-install-recommends python3.12-venv \
+ && apt-get install -y --no-install-recommends patch python3.12-venv \
  && rm -rf /var/lib/apt/lists/*
 COPY docker/vllm/requirements.txt /tmp/requirements.txt
 RUN --mount=type=cache,target=/root/.cache/pip \
     python3.12 -m venv /opt/venv \
  && /opt/venv/bin/pip install --no-deps --require-hashes --only-binary=:all: -r /tmp/requirements.txt \
  && /opt/venv/bin/pip uninstall -y pip
+COPY docker/vllm/patches /tmp/patches
+RUN for p in /tmp/patches/*.patch; do \
+      patch --forward --strip=1 --directory=/opt/venv/lib/python3.12/site-packages < "$p" || exit 1; \
+    done
 
 FROM base AS runtime
 ARG APP_UID=10001

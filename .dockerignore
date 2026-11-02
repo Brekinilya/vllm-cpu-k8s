@@ -1,5 +1,6 @@
 *
 !docker/vllm/requirements.txt
+!docker/vllm/patches/**
 !docker/downloader/requirements.txt
 !src/vllm_privacy/**
 !scripts/download_model.py

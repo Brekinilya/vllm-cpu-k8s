@@ -21,7 +21,7 @@
 ```
 .
 ├── docker/
-│   ├── vllm/                  Dockerfile vLLM, requirements.in, requirements.txt (lock с хэшами)
+│   ├── vllm/                  Dockerfile vLLM, requirements.in, requirements.txt (lock с хэшами), patches/
 │   └── downloader/            Dockerfile загрузчика модели для initContainer, lock
 ├── src/vllm_privacy/          фильтр логов, ASGI-middleware для access-лога, logging.json
 ├── scripts/
@@ -35,7 +35,7 @@
 │   ├── overlays/experiments/  варианты модели и параметров для нагрузочных экспериментов
 │   └── components/            Kustomize-компонент с альтернативной моделью (Qwen2.5-0.5B)
 ├── bench/                     нагрузочный тест, Job для кластера, микробенчмарк dtype, результаты
-└── tests/                     unit-тесты приватности логов
+└── tests/                     unit-тесты приватности логов и патча vLLM
 ```
 
 ## Быстрый старт
@@ -99,7 +99,7 @@ curl http://localhost:8000/v1/chat/completions \
 python -m unittest discover -s tests -v
 ```
 
-Тест с настоящим `RequestLogger` из vLLM запускается внутри образа:
+Тест с настоящим `RequestLogger` из vLLM и тесты патча запускаются внутри образа:
 
 ```bash
 docker run --rm --entrypoint python -v "$PWD/tests:/tests:ro" -v "$PWD/src:/src:ro" vllm-cpu:0.32.0 -m unittest discover -s /tests -v
@@ -128,6 +128,11 @@ docker run --rm --entrypoint python -v "$PWD/tests:/tests:ro" -v "$PWD/src:/src:
 
 - **builder:** создаёт venv и ставит пакеты строго по lock-файлу: `--require-hashes` (хэш каждого файла сверяется), `--no-deps` (pip не может доустановить что-то не из lock-файла), `--only-binary=:all:` (никакой сборки из исходников). После установки pip удаляется из venv.
 - **runtime:** только Python, `libtcmalloc` и `libnuma`, которые нужны CPU-бэкенду vLLM, `g++` и заголовки Python. Компилятор нужен потому, что vLLM на CPU компилирует ядра модели через `torch.compile` (Inductor) прямо при старте; без него движок падает с `InvalidCxxCompiler`. В официальном CPU-образе vLLM компилятор тоже есть.
+- **Патч vLLM** [`docker/vllm/patches/cgroup-page-cache.patch`](docker/vllm/patches/cgroup-page-cache.patch) накладывается в builder; если он не применится к закреплённой версии, сборка упадёт.
+  - *Проблема.* Перед выделением KV-кэша vLLM 0.32 считает свободную память пода как `memory.max − memory.current`. Но `memory.current` в cgroup v2 включает page cache, в том числе 2.9 GB только что прочитанных с PVC весов, которые ядро может вытеснить в любой момент.
+  - *Симптом.* Старт падал с `Available memory on node 0 (0.29/8.0 GiB) on kv cache allocation is less than requested memory for kv (1.0 GiB)`, причём нестабильно: всё зависело от того, остались ли веса в кэше от предыдущего пода.
+  - *Исправление.* Патч вычитает из использования чистый файловый кэш (`file − shmem` из `memory.stat`). shmem — это `/dev/shm`, без swap его не вытеснить, поэтому он остаётся занятым.
+  - *Тесты.* Три теста в [`tests/test_cgroup_memory_patch.py`](tests/test_cgroup_memory_patch.py), запускаются внутри образа.
 - Процесс работает от `uid 10001`. Сеть Hugging Face в образе выключена по умолчанию (`HF_HUB_OFFLINE=1`, `TRANSFORMERS_OFFLINE=1`), сбор статистики vLLM отключён (`VLLM_NO_USAGE_STATS=1`).
 
 **Воспроизводимость зависимостей.** Lock-файл генерирует [`scripts/lock.sh`](scripts/lock.sh) через `uv pip compile`:
@@ -169,7 +174,7 @@ INFO 2026-11-02T16:25:37 [vllm_privacy.access:55] 127.0.0.1 POST /v1/chat/comple
 
 Как проверено:
 
-- 15 unit-тестов в [`tests/`](tests). Один из них прогоняет настоящий `RequestLogger` vLLM с уровнем DEBUG, включённым логированием ответов и строкой-маркером в промпте, stop-строках и ответе, и проверяет, что маркера в выводе нет.
+- 15 unit-тестов приватности в [`tests/`](tests). Один из них прогоняет настоящий `RequestLogger` vLLM с уровнем DEBUG, включённым логированием ответов и строкой-маркером в промпте, stop-строках и ответе, и проверяет, что маркера в выводе нет.
 - `scripts/smoke_test.sh` на живом кластере отправляет промпт с уникальным маркером, убеждается, что маркер есть в ответе модели, и затем ищет его в `kubectl logs`.
 
 ## Хранилище и кэширование модели
@@ -388,5 +393,6 @@ BENCH_PLAN="short=64@8 long=1024@4" ./bench/run.sh qwen2.5-0.5b-fp32-small-batch
 - **Образы** — собирать в CI и пушить в registry с подписью (cosign) и SBOM, ссылаться по digest. Сейчас образы загружаются в minikube локально.
 - **Сеть** — NetworkPolicy: доступ к 8000 только от ingress/шлюза; egress основному контейнеру не нужен вообще. В minikube с CNI по умолчанию NetworkPolicy не применяются, поэтому сюда не добавлены.
 - **Компилятор в рантайм-образе** — вынужденная мера для `torch.compile` на CPU. Альтернатива — `enforce-eager: true` и образ без `g++`, ценой производительности.
+- **Патч учёта памяти** стоит отправить в vLLM upstream; до этого его нужно проверять при каждом обновлении версии (сборка упадёт, если патч перестанет применяться).
 - **AOT-кэш компиляции vLLM 0.32** на CPU не загружается (`'function' object has no attribute 'finalize_loading'`), поэтому выключен (`VLLM_USE_AOT_COMPILE=0`), а кэш Inductor/Triton лежит на PVC.
 - **Масштабирование** — при RWO-томе одна реплика. Для нескольких реплик нужен RWX-том или общий кэш (S3 / NFS / OCI-артефакт) с загрузкой на каждую ноду, а также HPA по метрикам vLLM (`/metrics`: очередь, KV-кэш).

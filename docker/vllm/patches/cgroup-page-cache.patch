@@ -1,0 +1,46 @@
+--- a/vllm/utils/cpu_resource_utils.py
++++ b/vllm/utils/cpu_resource_utils.py
+@@ -66,6 +66,18 @@
+         return None
+ 
+ 
++def _read_reclaimable_page_cache(stat_path: str, file_key: str, shmem_key: str) -> int:
++    stats = {}
++    try:
++        with open(stat_path) as f:
++            for line in f:
++                name, _, value = line.partition(" ")
++                stats[name] = int(value)
++    except (OSError, ValueError):
++        return 0
++    return max(0, stats.get(file_key, 0) - stats.get(shmem_key, 0))
++
++
+ @cache
+ def get_cgroup_memory_limit() -> int | None:
+     """Return the cgroup memory limit in bytes, or None.
+@@ -105,12 +117,22 @@
+ 
+     # cgroup v2 unified hierarchy
+     if _read_int_file("/sys/fs/cgroup/memory.max") is not None:
+-        return _read_int_file("/sys/fs/cgroup/memory.current")
++        usage = _read_int_file("/sys/fs/cgroup/memory.current")
++        if usage is None:
++            return None
++        page_cache = _read_reclaimable_page_cache("/sys/fs/cgroup/memory.stat", "file", "shmem")
++        return max(0, usage - page_cache)
+ 
+     # cgroup v1
+     v1_limit = _read_int_file("/sys/fs/cgroup/memory/memory.limit_in_bytes")
+     if v1_limit is not None and v1_limit < (1 << 62):
+-        return _read_int_file("/sys/fs/cgroup/memory/memory.usage_in_bytes")
++        usage = _read_int_file("/sys/fs/cgroup/memory/memory.usage_in_bytes")
++        if usage is None:
++            return None
++        page_cache = _read_reclaimable_page_cache(
++            "/sys/fs/cgroup/memory/memory.stat", "total_cache", "total_shmem"
++        )
++        return max(0, usage - page_cache)
+ 
+     return None
+ 
