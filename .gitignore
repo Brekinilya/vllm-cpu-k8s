@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+.venv/
+.minikube-start.log
+deploy/overlays/*/secrets.env

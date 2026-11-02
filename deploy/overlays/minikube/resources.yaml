@@ -1,0 +1,16 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm
+spec:
+  template:
+    spec:
+      containers:
+        - name: vllm
+          resources:
+            requests:
+              cpu: "12"
+              memory: 8Gi
+            limits:
+              cpu: "12"
+              memory: 8Gi

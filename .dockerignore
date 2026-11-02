@@ -1,0 +1,6 @@
+*
+!docker/vllm/requirements.txt
+!docker/downloader/requirements.txt
+!src/vllm_privacy/**
+!scripts/download_model.py
+**/__pycache__

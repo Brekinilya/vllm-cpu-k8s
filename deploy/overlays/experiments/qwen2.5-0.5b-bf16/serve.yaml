@@ -1,0 +1,13 @@
+host: 0.0.0.0
+port: 8000
+served-model-name: qwen2.5-0.5b-instruct
+dtype: bfloat16
+max-model-len: 4096
+max-num-seqs: 16
+max-num-batched-tokens: 4096
+kv-cache-memory-bytes: 1G
+enable-prefix-caching: true
+enable-request-id-headers: true
+enable-log-requests: true
+disable-uvicorn-access-log: true
+middleware: vllm_privacy.middleware.AccessLogMiddleware

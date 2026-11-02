@@ -1,0 +1,33 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: llm-inference
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: llm-inference
+    includeSelectors: false
+
+resources:
+  - namespace.yaml
+  - serviceaccount.yaml
+  - pvc.yaml
+  - deployment.yaml
+  - service.yaml
+
+configMapGenerator:
+  - name: vllm-model
+    envs:
+      - config/model.env
+  - name: vllm-runtime
+    envs:
+      - config/runtime.env
+  - name: vllm-serve
+    files:
+      - config/serve.yaml
+
+images:
+  - name: vllm-cpu
+    newTag: 0.32.0
+  - name: model-downloader
+    newTag: 1.0.0
